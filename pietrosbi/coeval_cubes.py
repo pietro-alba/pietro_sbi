@@ -5,9 +5,14 @@ import py21cmfast as p21c
 import numpy as np
 
 def remove_21cmfast_cache():
-    # Removes the cache from the folder '21cmFAST-cache'
-    
+    '''
+    Removes the cache from the folder '21cmFAST-cache'
+    '''
+
+    # Path to the folder 21cmFAST-cache
     folder = '/obs/pguidi/21cmFAST-cache'
+
+    # For loop to remove all the files inside the folder
     for filename in os.listdir(folder):
         file_path = os.path.join(folder, filename)
         if os.path.isfile(file_path):
@@ -17,6 +22,20 @@ def remove_21cmfast_cache():
 
 
 def create_coeval(z, n_pixels, dim, astro_params_dict, seed):
+    '''
+    This function creates a coeval cube with the package 21cmfast.
+
+    Inputs:
+        - z: redshift of the coeval cube (float)
+        - n_pixels: number of pixels of the coeval cube (int)
+        - dim: dimension of the cube in Mpc (float)
+        - astro_params_dict: dictionary with the astrophysical parameters (dict)
+        - seed: seed for the simulation (int)
+
+    Outputs:
+        - coeval: coeval cube
+    '''
+    
     # Creates the coeval cube with 21cmfast
     coeval = p21c.run_coeval(
         redshift=z,
@@ -33,5 +52,5 @@ def create_coeval(z, n_pixels, dim, astro_params_dict, seed):
     for i in range(len(coeval.brightness_temp)):
        coeval.brightness_temp[i] -= np.mean(coeval.brightness_temp[i])
     
-    return coeval#.brightness_temp
+    return coeval
 
