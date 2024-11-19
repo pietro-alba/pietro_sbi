@@ -6,33 +6,6 @@ from pietrosbi.coeval_cubes import remove_21cmfast_cache, create_coeval
 import itertools as it
 
 
-def create_param_pairs_2(n=10):
-    '''
-    This function creates all the possible parameter pairs
-    in the parameter space with the corrsponding probability
-
-    Inputs:
-        - n: number of parts in which one axis of the parameter space is subdivided
-
-    Outputs:
-        - eff_Tvir_pairs: ionization efficiency and virial temperature value pairs
-        - eff_Tvir_prob_vals: probability values for all the corresponding pairs of paramters
-    '''
-    
-    # Probabilites for each value of HII_EFF and T_vir. It's a uniform distribution
-    prob_EFF = np.ones(n)/n
-    EFF_vals = np.linspace(20, 40, n)
-    prob_Tvir = np.ones(n)/n
-    Tvir_vals = np.linspace(4.1, 5.5, n)
-
-    # Creating an array with all possible pairs of HII_eff and T_vir, and an array with the corresponding probabilities
-    eff_Tvir_pairs = np.array(list(it.product(EFF_vals, Tvir_vals)))
-    eff_Tvir_prob_pairs = np.array(list(it.product(prob_EFF, prob_Tvir)))
-    eff_Tvir_prob_vals = np.array(list(map(lambda x: x[0] * x[1], eff_Tvir_prob_pairs)))
-
-    return eff_Tvir_pairs, eff_Tvir_prob_vals
-
-
 def create_x_theta_5(HIIeff_Tvir_arr, z = 7, n_pixels = 32, dim = 300, bins = 6, l1 = True, l2 = True, wavelet_type = 'morl', start_seed = 1):
     '''
     This function creates the data summaries with the corresponding parameters used to generate them. 
@@ -186,19 +159,17 @@ def create_batched_data_2(n_batches = 10,
     # Total number of simulations
     n = n_batches * n_per_batch
 
-    # Creating the pairs of ionization efficiency and the corresponding probabilities
-    eff_Tvir_pairs, eff_Tvir_prob_vals = create_param_pairs_2(n)
+    # Higher and lower bounds for the uniform distributions of the efficiency and T_vir
+    low = [20, 4.1]
+    high = [40, 5.5]
     
     seed = start_seed
 
     # For loop over the number of batches
     for i in range(n_batches):
-        # Choosing random indices which correspond to random pairs of HII_eff and T_vir according to the right probabilities
-        HIIeff_Tvir_ind_arr = np.random.choice(np.arange(0, n*n), size = n_per_batch, p=eff_Tvir_prob_vals)
+        # Choosing random values of ionization efficiency and T_vir
+        HIIeff_Tvir_arr = np.random.uniform(low = low, high = high, size = (n_per_batch, 2))
         
-        # Selecting the right pairs of HII_eff and T_vir based on the randomly chosen indices
-        HIIeff_Tvir_arr = np.array([eff_Tvir_pairs[ind] for ind in HIIeff_Tvir_ind_arr])
-
         # Creating the parameter list and calculating the statistics and summaries
         param_list, data_summary_S1_l1l2, data_summary_PS_l1l2, data_summary_S2_l1l2, data_summary_PS3d, seed = create_x_theta_5(HIIeff_Tvir_arr, 
                                                                                                                                  z = 7, 
