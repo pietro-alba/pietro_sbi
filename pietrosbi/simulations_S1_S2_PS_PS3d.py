@@ -1,207 +1,253 @@
 #!/usr/bin/env python3
 
 import numpy as np
-from pietrosbi.pietro_wavelet_transforms import Pietro_Wavelet_Transforms_1
+from pietrosbi.NEW_pietro_wavelet_transforms import Pietro_Wavelet_Transforms
 from pietrosbi.coeval_cubes import remove_21cmfast_cache, create_coeval
 import itertools as it
+import os
 
-
-def create_x_theta_0(HIIeff_Tvir_arr, z = 7, n_pixels = 32, dim = 300, bins = 6, l1 = True, l2 = True, wavelet_type = 'morl', start_seed = 1):
-    '''
-    This function creates the data summaries with the corresponding parameters used to generate them. 
-    l1l2 summaries for PS, S1 and S2; and the PS3d
+def create_data(HIIeff_Tvir_arr, 
+                     z, 
+                     n_pixels, 
+                     dim, 
+                     bins_list, 
+                     l1, 
+                     l2, 
+                     wavelet_type,
+                     start_seed, 
+                     ind, 
+                     save_files, 
+                     path):
+    """
+    It produces coeval cubes and calculates the data summaries to compress the cubes.
+    Then, it saves the data summaries in .npy files.
+    These data are needed for the training of the Neural Density Estimators.
 
     Inputs:
-        - HIIeff_Tvir_arr: array of pairs of ionization efficency and virial temperature
-        - z: redshift
-        - n_pixels: number of pixels of the coeval cube
-        - dim: dimension of the cooeval cube in Mpc
-        - bins: number of bins for the statistics 
-        - l1: whether or not to calculate the l1 summary (bool)
-        - l2: whether or not to calculate the l2 summary (bool)
-        - wavelet_type: wavelet type to be used for the l1 and l2 summary
-        - start_seed: first seed for the coeval cube.
+        - HIIeff_Tvir_arr: an array with shape (num, 2), where num is the number of cubes to simulate and 2 is the 
+                         number of astrophysical paramters to change for each simulation.
+                         The two astrophysical parameters are the ionising efficiency and the virial temperature
+        - z: redshift of the coeval cubes
+        - n_pixels: number of pixel of the cubes
+        - dim: size of the cubes in Mpc 
+        - bins_list: list with the number of bins for the data summaires. This allows to find the best value for the number of bins
+        - l1: (Ignored) True if we want to use the \ell 1 summary, or False otherwise, for the Line of Sight decomposition
+        - l2: (Ignored) True if we want to use the \ell 2 summary, or False otherwise, for the Line of Sight decomposition
+        - wavelet_type: (Ignored) the type of wavelet to use for the Line of Sight decomposition
+        - start_seed: random starting seed. The seed will change for each simulation
+        - ind: index of the batch
+        - save_files: True if you want to save the .npy files
+        - path: path to directory where you want to save the files
 
     Outputs:
-        - param_list: list of paramters used for the simulations
-        - data_summary_S1_l1l2: l1 and l2 data summaries for S1
-        - data_summary_PS_l1l2: l1 and l2 data summaries for PS
-        - data_summary_S2_l1l2: l1 and l2 data summaries for S2
-        - data_summary_PS3d: data for PS3d
-        - seed: seed used for the last simulation
-    '''
-    
-    # Creation of the class to calculate the l1 and l2 summaries
-    #My_WT = Pietro_Wavelet_Transforms_2(box_size=dim, n_pixels=n_pixels, bins=bins, l1=l1, l2=l2, wavelet_type = wavelet_type)
+        - seed: the seed of the last simualation, so you can continue changing the seed for the next batch
+                Therefore, the starting seed of each batch is the seed of the last simulation of the previous batch
+    """
 
+    # Number of simulations in the batch
     num = len(HIIeff_Tvir_arr)
     
-    # Creating coeval cubes and saving the data summaries and parameters with different values of HII_EFF_FACTOR and ION_Tvir_MIN
+    # Array that will save the values of the two atrophysical parameters and the seed of each simulation
     param_list = np.zeros((num, 3))
-    data_summary_S1 = np.zeros((num, n_pixels, bins))
-    data_summary_PS = np.zeros((num, n_pixels, bins))
-    data_summary_S2 = np.zeros((num, n_pixels, bins, bins))
-    data_summary_PS3d = np.zeros((num, bins))
+
+    # Dictionaries for each summary statistic, where the keys are the number of bins present in the list of bins
+    data_summary_S1_dict = {b: np.zeros((num, n_pixels, b)) for b in bins_list}
+    data_summary_S2_dict = {b: np.zeros((num, n_pixels, b, b)) for b in bins_list}
+    data_summary_PS_dict = {b: np.zeros((num, n_pixels, b)) for b in bins_list}
+    data_summary_PS3d_dict = {b: np.zeros((num, b)) for b in bins_list}
+
+    # Dictionary for my wavelet transforms
+    My_WT_dict = {b: Pietro_Wavelet_Transforms(box_size=dim, n_pixels=n_pixels, bins=b, l1=l1, l2=l2, wavelet_type = wavelet_type) for b in bins_list}
+    
+    # Creating the simulations and calculating the data summaries
     seed = start_seed
     for i in range(num):
-        # Changing the seed for each coeval cube
         seed += np.random.randint(1,10)
         astro_params_dict = {"HII_EFF_FACTOR":HIIeff_Tvir_arr[i,0], "ION_Tvir_MIN": HIIeff_Tvir_arr[i,1]}
-
-        # Creation of the class to calculate the l1 and l2 summaries
-        My_WT = Pietro_Wavelet_Transforms_1(box_size=dim, n_pixels=n_pixels, bins=bins, l1=l1, l2=l2, wavelet_type = wavelet_type)
-
-        # Simulating the coeval cube
+        
         coeval = create_coeval(z=z, n_pixels=n_pixels, dim=dim, astro_params_dict=astro_params_dict, seed=seed)
+        
         param_list[i,0] = coeval.astro_params.HII_EFF_FACTOR
         param_list[i,1] = coeval.astro_params.ION_Tvir_MIN
         param_list[i,2] = seed
 
-        # Calculating PS3d and the l1 and l2 summaries for S1, S2 and PS
-        data_summary_S1[i] = np.array([My_WT.S1(coeval.brightness_temp[i], plot_fig = False) for i in range(len(coeval.brightness_temp))])
-        data_summary_PS[i] = np.array([My_WT.PS(coeval.brightness_temp[i], plot_fig = False) for i in range(len(coeval.brightness_temp))])
-        data_summary_S2[i] = np.array([My_WT.S2(coeval.brightness_temp[i], plot_fig = False) for i in range(len(coeval.brightness_temp))])
-        data_summary_PS3d[i] = My_WT.PS(coeval.brightness_temp)
-
-        # Removing the files inside the cache
+        for b in bins_list:
+            My_WT_dict[b].load_sim(coeval.brightness_temp)
+            data_summary_S1_dict[b][i] = My_WT_dict[b].S1
+            data_summary_PS_dict[b][i] = My_WT_dict[b].PS
+            data_summary_S2_dict[b][i] = My_WT_dict[b].S2
+            data_summary_PS3d_dict[b][i] = My_WT_dict[b].PS3d
+            
         remove_21cmfast_cache()
-    
-    return param_list, data_summary_S1, data_summary_PS, data_summary_S2, data_summary_PS3d, seed
+        
+    # Saving the data summaries in .npy files
+    if save_files:
+        if path is None:
+                raise ValueError('path should be a string and not None')
+        for b in bins_list:
+            full_path = os.path.join(path, f'bins_{b}')
+            if not os.path.exists(full_path):
+                os.makedirs(full_path)
 
-def create_data_obs_0(HIIeff_Tvir_true, z = 7, n_pixels = 32, dim = 300, bins = 6, l1 = True, l2 = True, wavelet_type = 'morl', seed = 1):
-    '''
-    This function creates the data summaries with the corresponding parameters used to generate them. 
-    l1l2 summaries for PS, S1 and S2; and the PS3d
+            np.save(os.path.join(full_path, f'param_list_{ind}.npy'), np.float32(param_list))
+            np.save(os.path.join(full_path, f'data_summary_S1_{ind}.npy'), data_summary_S1_dict[b])
+            np.save(os.path.join(full_path, f'data_summary_PS_{ind}.npy'), data_summary_PS_dict[b])
+            np.save(os.path.join(full_path, f'data_summary_S2_{ind}.npy'), data_summary_S2_dict[b])
+            np.save(os.path.join(full_path, f'data_summary_PS3d_{ind}.npy'), np.float32(data_summary_PS3d_dict[b]))
+    
+    return seed
+
+def create_data_obs(HIIeff_Tvir_true, 
+                      z, 
+                      n_pixels, 
+                      dim, 
+                      bins_list, 
+                      l1, 
+                      l2, 
+                      wavelet_type, 
+                      seed, 
+                      save_files, 
+                      path):
+    
+    """
+    It produces one coeval cube and calculates its data summaries. This cube will act as an observation.
+    Then, it saves the data summaries in .npy files.
+    These data are needed after the training of the Neural Density Estimators to test its performance.
 
     Inputs:
-        - HIIeff_Tvir_arr: array of pairs of ionization efficency and virial temperature
-        - z: redshift
-        - n_pixels: number of pixels of the coeval cube
-        - dim: dimension of the cooeval cube in Mpc
-        - bins: number of bins for the statistics 
-        - l1: whether or not to calculate the l1 summary (bool)
-        - l2: whether or not to calculate the l2 summary (bool)
-        - wavelet_type: wavelet type to be used for the l1 and l2 summary
-        - seed: seed for the coeval cube.
+        - HIIeff_Tvir_true: array with the two values of astrophysical paramters used for the observation.             
+        - z: redshift of the coeval cube
+        - n_pixels: number of pixel of the cube
+        - dim: size of the cube in Mpc 
+        - bins_list: list with the number of bins for the data summaires. This allows to find the best value for the number of bins
+        - l1: True if we want to use the \ell 1 summary, or False otherwise, for the Line of Sight decomposition
+        - l2: True if we want to use the \ell 2 summary, or False otherwise, for the Line of Sight decomposition
+        - wavelet_type: the type of wavelet to use for the Line of Sight decomposition
+        - seed: random seed
+        - save_files: True if you want to save the .npy files
+        - path: path to directory where you want to save the files
 
     Outputs:
-        - param_true: true paramters used for the simulations
-        - data_obs_S1_l1l2: l1 and l2 data summaries for the "observed" S1
-        - data_obs_PS_l1l2: l1 and l2 data summaries for the "observed" PS
-        - data_obs_S2_l1l2: l1 and l2 data summaries for the "observed" S2
-        - data_obs_PS3d: data for the "observed" PS3d
+        - seed: the seed of the simualation
+    """
 
-    '''
-    
-    astro_params_dict = {"HII_EFF_FACTOR": HIIeff_Tvir_true[0], "ION_Tvir_MIN": HIIeff_Tvir_true[1]}
-
-    # Creation of the class to calculate the l1 and l2 summaries
-    My_WT = Pietro_Wavelet_Transforms_1(box_size=dim, n_pixels=n_pixels, bins=bins, l1=l1, l2=l2, wavelet_type = wavelet_type)
-
-    # Observation summary and the true paramters
+    # Array that will contain the true paramters of the observation
     param_true = np.zeros(3)
-    
-    # Coeval cube for the observation after changing the seed
+
+    # Dictionaries for each summary statistic, where the keys are the number of bins present in the list of bins
+    data_obs_S1_dict = {b: np.zeros((n_pixels, b)) for b in bins_list}
+    data_obs_S2_dict = {b: np.zeros((n_pixels, b, b)) for b in bins_list}
+    data_obs_PS_dict = {b: np.zeros((n_pixels, b)) for b in bins_list}
+    data_obs_PS3d_dict = {b: np.zeros(b) for b in bins_list}
+
+    # Dictionary for my wavelet transforms
+    My_WT_dict = {b: Pietro_Wavelet_Transforms(box_size=dim, n_pixels=n_pixels, bins=b, l1=l1, l2=l2, wavelet_type = wavelet_type) for b in bins_list}
+
+    # Coeval cube for the observation
     seed += np.random.randint(1,10)
+    astro_params_dict = {"HII_EFF_FACTOR": HIIeff_Tvir_true[0], "ION_Tvir_MIN": HIIeff_Tvir_true[1]}
     coeval = create_coeval(z=z, n_pixels=n_pixels, dim=dim, astro_params_dict=astro_params_dict, seed=seed)
     param_true[0] = coeval.astro_params.HII_EFF_FACTOR
     param_true[1] = coeval.astro_params.ION_Tvir_MIN
     param_true[2] = seed
 
-    # Calculating PS3d and the l1 and l2 summaries for S1, S2 and PS
-    data_obs_S1 = np.array([My_WT.S1(coeval.brightness_temp[i], plot_fig = False) for i in range(len(coeval.brightness_temp))])
-    data_obs_PS = np.array([My_WT.PS(coeval.brightness_temp[i], plot_fig = False) for i in range(len(coeval.brightness_temp))])
-    data_obs_S2 = np.array([My_WT.S2(coeval.brightness_temp[i], plot_fig = False) for i in range(len(coeval.brightness_temp))])
-    data_obs_PS3d = My_WT.PS(coeval.brightness_temp)
+    # Calculation of the data summaries
+    for b in bins_list:
+        My_WT_dict[b].load_sim(coeval.brightness_temp)
+        data_obs_S1_dict[b] = My_WT_dict[b].S1
+        data_obs_PS_dict[b] = My_WT_dict[b].PS
+        data_obs_S2_dict[b] = My_WT_dict[b].S2
+        data_obs_PS3d_dict[b] = My_WT_dict[b].PS3d
 
-    # Removing the files inside the cache
     remove_21cmfast_cache()
+    
+    # Saving the data summaries in .npy files
+    if save_files:
+        if path is None:
+                raise ValueError('path should be a string a not None')
+        for b in bins_list:
+            full_path = os.path.join(path, f'bins_{b}')
+            if not os.path.exists(full_path):
+                os.makedirs(full_path)
 
-    return param_true, data_obs_S1, data_obs_PS, data_obs_S2, data_obs_PS3d
+            np.save(os.path.join(full_path, 'param_true.npy'), np.float32(param_true))
+            np.save(os.path.join(full_path, 'data_obs_S1.npy'), data_obs_S1_dict[b])
+            np.save(os.path.join(full_path, 'data_obs_PS.npy'), data_obs_PS_dict[b])
+            np.save(os.path.join(full_path, 'data_obs_S2.npy'), data_obs_S2_dict[b])
+            np.save(os.path.join(full_path, 'data_obs_PS3d.npy'), np.float32(data_obs_PS3d_dict[b]))
+            
+    return seed
 
+def create_batched_data(n_batches, 
+                          n_per_batch, 
+                          z, 
+                          n_pixels, 
+                          dim, 
+                          bins_list, 
+                          l1, 
+                          l2, 
+                          wavelet_type,
+                          start_seed, 
+                          save_files,
+                          path = None):
 
-def create_batched_data_0(n_batches = 10, 
-                          n_per_batch = 10, 
-                          z = 7, 
-                          n_pixels = 32, 
-                          dim = 300, 
-                          bins = 6, 
-                          l1 = True, 
-                          l2 = True, 
-                          wavelet_type = 'morl', 
-                          start_seed = 1, 
-                          save_files = False
-                         ):
-    '''
-    This function creates and saves the l1 and l2 summaries of the simulations of coeval cubes.
-    The simulations are divided in batches.
+    """
+    It produces the data for the training of the Neural Density Estimator.
+    The data are divided in batches.
+    It also generates one additional cube which is used as an observation.
 
     Inputs:
         - n_batches: number of batches
         - n_per_batch: number of simulations per batch
-        - z: redshift
-        - n_pixels: number of pixels of the coeval cube 
-        - dim: dimension of the coeval cube in Mpc 
-        - bins: number of bins for the statistics
-        - l1: whether or not to calculate the l1 summary (bool)
-        - l2: whether or not to calculate the l2 summary (bool) 
-        - wavelet_type: type of wavelet to be used for the l1 and l2 summaries
-        - start_seed: seed to be used for the first coeval cube 
-        - save_files: whether or not to save the .npy files (bool) 
+        - z: redshift of the coeval cubes
+        - n_pixels: number of pixel of the cubes
+        - dim: size of the cubes in Mpc 
+        - bins_list: list with the number of bins for the data summaires. This allows to find the best value for the number of bins
+        - l1: True if we want to use the \ell 1 summary, or False otherwise, for the Line of Sight decomposition
+        - l2: True if we want to use the \ell 2 summary, or False otherwise, for the Line of Sight decomposition
+        - wavelet_type: the type of wavelet to use for the Line of Sight decomposition
+        - start_seed: random starting seed. The seed will change for each simulation
+        - save_files: True if you want to save the .npy files
+        - path: path to directory where you want to save the files
 
-    Outputs: no outputs; it just creates the statistics and summaries and it saves them
-    
-    '''
-    
-    # Total number of simulations
-    n = n_batches * n_per_batch
+    Outputs:
+        - seed: the seed of the last simualation, so you can continue changing the seed for other simulations if you need them
+    """
 
-    # Higher and lower bounds for the uniform distributions of the efficiency and T_vir
+    # Lowest and highest values of the uniform distribution which acts as the prior
     low = [20, 4.1]
     high = [40, 5.5]
     
     seed = start_seed
-
-    # For loop over the number of batches
     for i in range(n_batches):
-        # Choosing random values of ionization efficiency and T_vir
+        # Generating random values of the astrophysical paramters and creating the data summaries
         HIIeff_Tvir_arr = np.random.uniform(low = low, high = high, size = (n_per_batch, 2))
-        
-        # Creating the parameter list and calculating the statistics and summaries
-        param_list, data_summary_S1, data_summary_PS, data_summary_S2, data_summary_PS3d, seed = create_x_theta_0(HIIeff_Tvir_arr, 
-                                                                                                                  z = 7, 
-                                                                                                                  n_pixels = 32, 
-                                                                                                                  dim = 300, 
-                                                                                                                  bins = 6, 
-                                                                                                                  l1 = True, 
-                                                                                                                  l2 = True, 
-                                                                                                                  wavelet_type = 'morl', 
-                                                                                                                  start_seed = seed)
+        seed = create_data(HIIeff_Tvir_arr,
+                                z = z, 
+                                n_pixels = n_pixels, 
+                                dim = dim, 
+                                bins_list = bins_list, 
+                                l1 = l1, 
+                                l2 = l2, 
+                                wavelet_type = wavelet_type,
+                                start_seed = seed, 
+                                ind = i, 
+                                save_files = save_files,
+                                path = path)
     
-        # Saving the arrays in .npy files
-        if save_files:
-            np.save(f'/travail/pguidi/correct_data_3/param_list_{n}_{i}.npy', param_list)
-            np.save(f'/travail/pguidi/correct_data_3/data_summary_S1_{n}_{i}.npy', data_summary_S1)
-            np.save(f'/travail/pguidi/correct_data_3/data_summary_PS_{n}_{i}.npy', data_summary_PS)
-            np.save(f'/travail/pguidi/correct_data_3/data_summary_S2_{n}_{i}.npy', data_summary_S2)
-            np.save(f'/travail/pguidi/correct_data_3/data_summary_PS3d_{n}_{i}.npy', data_summary_PS3d)
-
-    # Similar to the body of the for loop but for the "observation"
+    # Generating random values of the astrophysical paramters for the observation and generating the observation
     HIIeff_Tvir_true = np.random.uniform(low = low, high = high, size = (2,))
-    param_true, data_obs_S1, data_obs_PS, data_obs_S2, data_obs_PS3d = create_data_obs_0(HIIeff_Tvir_true, 
-                                                                                         z = 7, 
-                                                                                         n_pixels = 32, 
-                                                                                         dim = 300, 
-                                                                                         bins = 6, 
-                                                                                         l1 = True, 
-                                                                                         l2 = True, 
-                                                                                         wavelet_type = 'morl', 
-                                                                                         seed = seed)
-
-    # Saving the arrays for the "observation" in .npy files
-    if save_files:
-        np.save(f'/travail/pguidi/correct_data_3/param_true_{n}.npy', param_true)
-        np.save(f'/travail/pguidi/correct_data_3/data_obs_S1_{n}.npy', data_obs_S1)
-        np.save(f'/travail/pguidi/correct_data_3/data_obs_PS_{n}.npy', data_obs_PS)
-        np.save(f'/travail/pguidi/correct_data_3/data_obs_S2_{n}.npy', data_obs_S2)
-        np.save(f'/travail/pguidi/correct_data_3/data_obs_PS3d_{n}.npy', data_obs_PS3d)
+    seed = create_data_obs(HIIeff_Tvir_true, 
+                             z = z, 
+                             n_pixels = n_pixels, 
+                             dim = dim, 
+                             bins_list = bins_list, 
+                             l1 = l1, 
+                             l2 = l2,
+                             wavelet_type = wavelet_type,
+                             seed = seed, 
+                             save_files = save_files, 
+                             path = path)
+    
+    return seed 
+    
