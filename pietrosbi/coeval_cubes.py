@@ -9,8 +9,8 @@ def remove_21cmfast_cache():
     Removes the cache from the folder '21cmFAST-cache'
     '''
 
-    # Path to the folder 21cmFAST-cache
-    folder = '/obs/pguidi/21cmFAST-cache'
+    # Path to the folder 21cmFAST-cache. Remember to remove it from the comment and to change it.
+    ### folder = '/path/to/the/folder'
 
     # For loop to remove all the files inside the folder
     for filename in os.listdir(folder):
