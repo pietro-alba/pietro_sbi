@@ -21,74 +21,14 @@ def combine_files_l1l2(file_paths):
 
     # Load the first .npy file
     # The slicing is done to remove the value of k modes which are saved together with l1l2
-    data_arr = np.load(file_paths[0])[:,:-1]
+    data_arr = np.load(file_paths[0])
 
     # For loop to concatenate all the other .npy files to the first one
     for path in file_paths[1:]:
-        data = np.load(path)[:,:-1]
+        data = np.load(path)
         data_arr = np.concatenate((data_arr, data), axis=0)
 
-    return reshape_and_torch_l1l2(data_arr)
-
-
-def reshape_and_torch_l1l2(array):
-    '''
-    This function reshapes arrays and converts them to torch tensors
-    If array has shape = (1000, 5, 6), it will be reshaped to (1000, 30)
-    Te reshaping is needed because the 1000 samples (in this case) cannot
-    be 2-dimensional when given as input to the NDE
-
-    Inputs:
-        - array: numpy array
-
-    Outputs:
-        - arr: reshaped arr and converted to torch.tensor
-    '''
-    
-    arr = array.reshape(array.shape[0], -1)
-    arr = torchify(arr)
-
-    return arr
-
-
-def torchify(array):
-    '''
-    This function converst a numpy array to torch.tensor
-    whose values are numnpy.float32 (instead of numpy.float64)
-    The NDE wants torch.tensors whose values are float32 and not float64
-
-    Inputs:
-        - array: numpy array
-
-    Outputs:
-        - a torch.tensor with float32 values
-    '''
-    
-    return torch.from_numpy(np.float32(array))
-    
-
-def import_obs_l1l2(path):
-    '''
-    This functions import the "observed" l1l2 summaries
-    from a specific path.
-
-    Inputs:
-        - path: path to the file
-
-    Outputs:
-        - obs: torch tensor of the file with l1l2 summaries found in path
-    '''
-
-    # Loading the .npy file.
-    # The slicing is needed to remove the k modes which 
-    # are saved with the l1l2 summaries
-    obs = np.load(path)[:-1]
-
-    # Flattening the array and converting it to torch.tensor
-    obs = obs.flatten()
-    obs = torchify(obs)
-
-    return obs
+    return data_arr
 
 
 def import_data_l1l2(path):
